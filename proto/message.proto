@@ -1,0 +1,45 @@
+syntax = "proto3";
+package proto;
+
+enum Type{
+    Type_UNDEFINED = 0;
+    SINGLE = 1;
+    GROUP = 2;
+    SYSTEM = 3;
+    ASSISTANT = 4;
+    APPLICATION = 5;
+}
+
+//上行
+message Submit{
+  string to = 1;//接收者
+  
+  Type type=2;//消息类型
+  bool notify = 3;//是否推送
+  bool offline = 4;//是否离线
+  enum RecvType{
+    RECV_UNDEFINED = 0;
+    ALL=1;
+    MOBILE=2;
+    PC=3;
+  }
+  RecvType recvType = 5;//接收者类型
+  bool history = 6;//是否保存离线消息
+  enum Priority{
+    PRI_UNDEFINED = 0;
+    ONE = 1;
+    TWO = 2;
+    THREE = 3;
+    FOUR = 4;
+    FIVE = 5;
+  }
+  Priority priority=7;//优先级
+}
+//下行
+message Deliver{
+  string from = 1;//发送者
+  string to = 2;//接受者
+  int64 timestamp=3;//时间戳
+  Type type=4;//消息类型
+}
+

@@ -1,0 +1,87 @@
+package service
+
+import (
+	"goio/logger"
+	"goio/msg"
+	"goio/util"
+	"sync"
+)
+
+type Worker struct {
+	jobChannel chan msg.Message
+	handler    Handler
+	wg         *sync.WaitGroup
+	running    bool
+	id         int
+}
+
+type Dispatcher struct {
+	queue      chan msg.Message
+	maxWorkers int
+	workers    []*Worker
+}
+
+func NewWorker(i int, h Handler) *Worker {
+	return &Worker{
+		handler:    h,
+		jobChannel: make(chan msg.Message, 1000),
+		wg:         &sync.WaitGroup{},
+		id:         i,
+		running:    true,
+	}
+}
+
+func (w *Worker) Start() {
+	w.wg.Add(1)
+	go func() {
+		for w.running {
+			msg := <-w.jobChannel
+			if msg != nil {
+				logger.Info("msg id %v,goid %v", msg.HandlerId(), util.Goid())
+				w.handler.Handle(msg)
+			}
+		}
+		w.wg.Done()
+	}()
+}
+
+func (w *Worker) Stop() {
+	w.running = false
+	close(w.jobChannel)
+}
+
+func (w *Worker) Wait() {
+	w.wg.Wait()
+}
+
+func NewDispatcher(maxWorkers, maxQueue int) *Dispatcher {
+	return &Dispatcher{
+		queue:      make(chan msg.Message, maxQueue),
+		maxWorkers: maxWorkers,
+		workers:    make([]*Worker, maxWorkers),
+	}
+}
+
+func (d *Dispatcher) Run(h Handler) {
+	for i := 0; i < d.maxWorkers; i++ {
+		worker := NewWorker(i, h)
+		worker.Start()
+		d.workers[i] = worker
+	}
+}
+
+func (d *Dispatcher) Stop() {
+	for _, worker := range d.workers {
+		worker.Stop()
+	}
+}
+
+func (d *Dispatcher) Wait() {
+	for _, worker := range d.workers {
+		worker.Wait()
+	}
+}
+
+func (d *Dispatcher) Send(msg msg.Message) {
+	d.workers[msg.HandlerId()%d.maxWorkers].jobChannel <- msg
+}

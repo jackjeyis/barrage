@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package protobuf;
+
+message Connect {
+  int32 keepAlive=1;
+  bytes token=2;
+  bool loginType=3;
+  bytes clientId=4;
+}
+
+
+enum ConnAckCode{
+    ACCEPTED = 0;
+    CLIENTED_REJECTED = 1;
+    SERVER_UNAVAILABLE = 2;
+    TOKEN_EXPIRY  = 3;
+    LOGINED = 4;
+}
+
+message Session{
+    int32 id= 1;
+    int32 msgSize = 2;
+    map<int32,Msg> msgs =3;
+}
+
+message Msg{
+    string topic =1;
+    string payload =2;
+}
+
+message ConnAck{
+    ConnAckCode ackCode=1;
+    map<int32,Session> sessions =2;
+}
+

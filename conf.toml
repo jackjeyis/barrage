@@ -1,0 +1,25 @@
+[services]
+  #[services.1]
+  #name="mqtt_handler"
+  #addr="0.0.0.0:1883 mqtt"
+  [services.2]
+  name="barrage_handler"
+  addr="0.0.0.0:8080 barrage"
+
+[engine]
+srvworker=512
+srvqueue=1
+ioworker=512
+ioqueue=1
+matrixbucket=16
+matrixsize=1024
+#524288
+
+[http]
+localaddr="0.0.0.0:7172"
+remoteaddr="172.16.6.10:8998"
+
+[zk]
+addrs = ["172.16.6.74"]
+timeout = "500ms"
+srvid = "1"

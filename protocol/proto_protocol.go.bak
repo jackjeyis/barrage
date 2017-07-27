@@ -1,0 +1,188 @@
+package protocol
+
+import (
+	"errors"
+	"goio/logger"
+	"goio/msg"
+	pb "goio/proto/protobuf"
+	"goio/queue"
+
+	"github.com/golang/protobuf/proto"
+)
+
+type PbMsgType uint8
+
+const (
+	PbConnect = PbMsgType(iota + 1)
+	PbConnAck
+	PbPublish
+	PbPubAck
+	PbPubRec
+	PbPubRel
+	PbPubComp
+	PbSubscribe
+	PbSubAck
+	PbUnSub
+	PbUnSubAck
+	PbPingReq
+	PbPingRes
+	PbDisConnect
+
+	PbMsgTypeInvalid
+)
+
+type ProtoHeader struct {
+	msgType PbMsgType
+	ver     uint8
+}
+
+func (p *ProtoHeader) Decode(b *queue.IOBuffer) (remainLen int32, err error) {
+	temp := b.Read(uint64(1))
+	*p = ProtoHeader{
+		msgType: PbMsgType(temp[0] & 0xF0 >> 4),
+		ver:     temp[0] & 0x0F,
+	}
+	remainLen = decodePbLength(b)
+	return
+}
+
+func (p *ProtoHeader) Encode(b *queue.IOBuffer, remainLen int32) error {
+	buf := queue.Get()
+	temp := byte(p.msgType) << 4
+	temp |= p.ver
+	buf.WriteByte(temp)
+	encodePbLength(buf, remainLen)
+	b.Write(buf.Bytes())
+	queue.Put(buf)
+	return nil
+}
+
+type ProtoConnect struct {
+	conn pb.Connect
+}
+
+func (p *ProtoConnect) Decode(b *queue.IOBuffer, remainLen int32) error {
+	temp := b.Read(uint64(remainLen))
+	err := proto.Unmarshal(temp, &p.conn)
+	return err
+}
+
+func (p *ProtoConnect) Encode(b *queue.IOBuffer) error {
+	temp, err := proto.Marshal(&p.conn)
+	if err != nil {
+		return err
+	}
+	b.Write(temp)
+	return nil
+}
+
+type ProtoConnAck struct {
+	connack pb.ConnAck
+}
+
+func (p *ProtoConnAck) Decode(b *queue.IOBuffer, remainLen int32) error {
+	temp := b.Read(uint64(remainLen))
+	err := proto.Unmarshal(temp, &p.connack)
+	return err
+}
+
+func (p *ProtoConnAck) Encode(b *queue.IOBuffer) error {
+	temp, err := proto.Marshal(&p.pb.connack)
+	if err != nil {
+		return err
+	}
+	b.Write(temp)
+	return nil
+}
+
+type ProtoProtocol struct {
+	ProtoHeader
+	remainLen int32
+}
+
+func (p *ProtoProtocol) Encode(msg msg.Message, buf *queue.IOBuffer) error {
+	return msg.Encode(buf)
+}
+
+func (p *ProtoProtocol) Decode(buf *queue.IOBuffer) (msg.Message, error) {
+	var (
+		cnt       int = 2
+		remainLen int32
+		err       error
+	)
+	if buf.Init() {
+		for {
+			if cnt > 5 {
+				return nil, errors.New("extend header size")
+			}
+			if buf.GetReadSize() < uint64(cnt+1) {
+				return nil, HeaderErr
+			}
+
+			if buf.Byte(uint64(cnt)) >= 0x80 {
+				cnt++
+			} else {
+				break
+			}
+		}
+
+	}
+
+	if buf.Init() {
+		remainLen, err = p.Header.Decode(buf)
+		buf.SetInit(false)
+	} else {
+		remainLen = p.remainLen
+	}
+	if uint64(remainLen) > buf.GetReadSize() {
+		logger.Info("remainLen %v,size  %v", remainLen, buf.GetReadSize())
+		p.remainLen = remainLen
+		return nil, BodyErr
+	}
+	if err != nil {
+		logger.Error("MqttProtocol.Header.Decode error %v", err)
+		return nil, err
+	}
+	return decodePbMessage(p.Header, buf, remainLen)
+}
+
+func decodePbMessage(h ProtoHeader, b *queue.IOBuffer, remainLen int32) (msg msg.Message, err error) {
+	switch h.msgType {
+	case Connect:
+		msg = &ProtoConnect{}
+	case ConnAck:
+		msg = *ProtoConnAck{}
+	default:
+		return nil, errors.New("Unknown PbMsgType")
+	}
+	err = msg.Decode(b, remainLen)
+	return
+}
+
+func decodePbLength(b *queue.IOBuffer) (len int32) {
+	var shift uint
+	for i := 0; i < 4; i++ {
+		temp := b.Read(uint64(1))
+		len |= int32(temp[0]&0x7f) << shift
+		if temp[0]&0x80 == 0 {
+			return
+		}
+		shift += 7
+	}
+	return
+}
+
+func encodePbLength(b *queue.ByteBuffer, len int32) {
+	if len == 0 {
+		b.WriteByte(byte(0))
+	}
+
+	for len > 0 {
+		temp := len & 0x7f
+		len >>= 7
+		if len > 0 {
+			temp |= 0x80
+		}
+		b.WriteByte(byte(temp))
+	}
+}
